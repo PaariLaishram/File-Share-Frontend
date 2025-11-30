@@ -15,13 +15,54 @@ export default function CreateFileShare() {
     const fileRef = useRef<File | null>(null)
     const [fileUrl, setFileUrl] = useState("")
     const CHUNK_SIZE = 64 * 1024 // 64 KB
-    const chunksRef = useRef<Record<number, Blob>>({})
+    const chunksRef = useRef<Record<number, ArrayBuffer>>({})
     const currentChunkIndexRef = useRef<number>(0)
     const offsetRef = useRef<number>(0)
     const [showConfirm, setShowConfirm] = useState(false)
     const [pendingSignal, setPendingSignal] = useState<UploadSignal | null>(null)
 
+    useEffect(() => {
+        if (isReceiver === null) return;
+        const ws = new WebSocket("ws://localhost:9903/ws")
+        ws.binaryType = "arraybuffer"
+        wsRef.current = ws
 
+        const actionType = "initConn"
+        const initSignal: UploadSignal = {
+            userType,
+            shareLink,
+            actionType
+        }
+        ws.onopen = () => {
+            ws.send(JSON.stringify(initSignal))
+        }
+
+        ws.onmessage = (event) => {
+            if (event.data instanceof Blob) {
+                const blob = event.data;
+                handleBinaryMessage(blob)
+            }
+            if (event.data instanceof ArrayBuffer) {
+                const blob = new Blob([event.data])
+                handleBinaryMessage(blob)
+            }
+            if (typeof event.data === "string") {
+                const response: UploadSignal = JSON.parse(event.data)
+                const handlers: Record<string, (msg: UploadSignal) => void> = {
+                    initConn: handleInitConn,
+                    startUpload: handleStartUpload,
+                    confirmUpload: handleConfirmUpload,
+                    // sendChunk: handleSendChunk,
+                    ackChunk: handleAckChunk,
+                    uploadComplete: handleUploadComplete
+                }
+
+                const handler = handlers[response.actionType]
+                if (handler) handler(response)
+                else console.warn("Warning, uknown action type", response.actionType)
+            }
+        }
+    }, [isReceiver])
 
     useEffect(() => {
         const tokenObj = localStorage.getItem("tokenObj")
@@ -36,6 +77,14 @@ export default function CreateFileShare() {
             setIsReceiver(false)
         }
     }, [params])
+
+    const handleUploadComplete = (response: UploadSignal) => {
+        if (userType === "receiver") {
+            console.log("downloading file")
+            const fileName = response.fileName ?? ""
+            downloadFile(fileName)
+        }
+    }
 
     const handleInitConn = (response: UploadSignal) => {
         const responseUserType = response.userType
@@ -58,6 +107,7 @@ export default function CreateFileShare() {
             const continueUpload = response.confirmUpload
             const currentFile = fileRef.current
             if (continueUpload && currentFile) {
+                currentChunkIndexRef.current = 0
                 sendNextChunk()
             }
             else {
@@ -66,111 +116,107 @@ export default function CreateFileShare() {
         }
     }
 
+
+
     const sendNextChunk = async () => {
         const file = fileRef.current
         if (!file) return
-
-        if (offsetRef.current >= file.size) {
-            const combinedBlob = combineChunks()
-            downloadFile(combinedBlob)
-            alert("Upload complete")
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
+        if (currentChunkIndexRef.current === undefined || currentChunkIndexRef.current === null) {
+            currentChunkIndexRef.current = 0
+        }
+        if(currentChunkIndexRef.current == totalChunks) {
+            console.log("upload completed")
+            const uploadComplete: UploadSignal = {
+                userType:"sender",
+                shareLink,
+                actionType:"uploadComplete",
+                fileName: file.name,
+                totalChunks
+            }
+            console.log(uploadComplete.fileName)
+            wsRef.current?.send(JSON.stringify(uploadComplete))
             return
+            
         }
 
         const chunk = file.slice(offsetRef.current, offsetRef.current + CHUNK_SIZE)
         const buffer = await chunk.arrayBuffer()
-
-        const sendChunkUploadSignal: UploadSignal = {
+        const metadata = JSON.stringify({
             userType: "sender",
             shareLink,
             actionType: "sendChunk",
-            chunkIndex: currentChunkIndexRef.current
-        }
-        wsRef.current?.send(JSON.stringify(sendChunkUploadSignal))
-        wsRef.current?.send(buffer)
-        offsetRef.current += CHUNK_SIZE
-        currentChunkIndexRef.current++
+            chunkIndex: currentChunkIndexRef.current,
+            totalChunks: totalChunks
+        });
+
+        const metadataBytes = new TextEncoder().encode(metadata)
+        const metadataLength = metadataBytes.byteLength;
+
+        // Step 2: Prepend 4-byte length header for metadata
+        const header = new ArrayBuffer(4);
+        new DataView(header).setUint32(0, metadataLength, false); // big-endian
+
+        // Step 3: Combine: [4-byte header][metadata][chunk data]
+        const combined = new Blob([
+            header,
+            metadataBytes,
+            buffer
+        ]);
+
+        // Step 4: Send as single binary message
+        wsRef.current?.send(combined);
+
+        // Update refs
+        offsetRef.current += CHUNK_SIZE;
+        currentChunkIndexRef.current++;
     }
 
-    const combineChunks = ():Blob => {
-        const recordArr: Record<number, Blob>[] = []
-        //Construct a new arr
-        //sort the arr
-        //build a map and combine the blobs
-       for (const chunkIndex in chunksRef.current ) {
-        const numIndex = Number(chunkIndex)
-        const value = chunksRef.current[numIndex]
-        const record:Record<number, Blob> = { [numIndex]: value}
-        recordArr.push(record)
-       }
 
-       recordArr.sort((a,b) => {
-        const keyA = Number(Object.keys(a)[0])
-        const keyB = Number(Object.keys(b)[0])
-        return keyA - keyB
-       })
+    const combineChunks = (): Blob => {
+        // Get all chunk indices as numbers and sort them
+        const indices = Object.keys(chunksRef.current)
+            .map(Number)
+            .sort((a, b) => a - b); // ascending order: 0, 1, 2, ...
 
-       const orderedBlobs:Blob[] = recordArr.map(obj => {
-        const index = Number(Object.keys(obj)[0])
-        return obj[index]
-       })
+        // Map sorted indices to their ArrayBuffers
+        const orderedChunks: ArrayBuffer[] = indices.map(index =>
+            chunksRef.current[index]
+        );
 
-       return new Blob(orderedBlobs, {type: fileRef.current?.type})
-    }
+        // Create final Blob with correct MIME type
+        return new Blob(orderedChunks, { type: fileRef.current?.type || "application/octet-stream" });
+    };
 
-    const downloadFile = (combinedBlob: Blob) => {
-        const url = URL.createObjectURL(combinedBlob)
-        const a = document.createElement("a")
-        a.href = url
-        a.download = fileRef.current?.name ?? "name_not_found.pdf"
-        a.click()
-    }
+    const downloadFile = (fileName: string) => {
+        const finalBlob = combineChunks();
+        // Create downloadable link
+        const url = URL.createObjectURL(finalBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName || "downloaded-file";
+        document.body.appendChild(a); // Required in Firefox
+        a.click();
+        document.body.removeChild(a);
 
-    useEffect(() => {
-        if (isReceiver === null) return;
-        const ws = new WebSocket("ws://localhost:9903/ws")
-        wsRef.current = ws
+        // Clean up
+        URL.revokeObjectURL(url);
+    };
 
-        const actionType = "initConn"
-        const initSignal: UploadSignal = {
-            userType,
-            shareLink,
-            actionType
-        }
-        ws.onopen = () => {
-            ws.send(JSON.stringify(initSignal))
-        }
+    const handleBinaryMessage = (blob: Blob) => {
+        blob.arrayBuffer().then(buffer => {
+            const view = new DataView(buffer);
+            const metadataLength = view.getUint32(0, false); // big-endian
 
-        ws.onmessage = (event) => {
-            if (event.data instanceof ArrayBuffer && userType == "receiver") {
-                // const blob =- new Blob([event.data],)
-                // chunksRef.current[currentChunkIndexRef.current] = event.data
-            } else {
-                const response: UploadSignal = JSON.parse(event.data)
-                const handlers: Record<string, (msg: UploadSignal) => void> = {
-                    initConn: handleInitConn,
-                    startUpload: handleStartUpload,
-                    confirmUpload: handleConfirmUpload,
-                    sendChunk: handleSendChunk,
-                    ackChunk: handleAckChunk,
-                }
+            const metadataBytes = buffer.slice(4, 4 + metadataLength);
+            const metadataText = new TextDecoder().decode(metadataBytes);
+            const metadata: UploadSignal = JSON.parse(metadataText);
 
-                const handler = handlers[response.actionType]
-                if (handler) handler(response)
-                else console.warn("Warning, uknown action type", response.actionType)
-            }
-        }
-    }, [isReceiver])
-
-    const handleAckChunk = (response: UploadSignal) => {
-        if (userType === "sender") {
-            sendNextChunk()
-        }
-    }
-
-    const handleSendChunk = (response: UploadSignal) => {
-        if (userType === "receiver") {
-            const chunkIndex = response.chunkIndex
+            const chunkData = buffer.slice(4 + metadataLength);
+            const chunkIndex = metadata.chunkIndex ?? 0
+            // Now you safely have both metadata and chunk
+            chunksRef.current[chunkIndex] = chunkData
+            //ack and then sendNextChunk()
             const ackResponse: UploadSignal = {
                 userType,
                 shareLink,
@@ -178,6 +224,12 @@ export default function CreateFileShare() {
                 chunkIndex
             }
             wsRef.current?.send(JSON.stringify(ackResponse));
+        });
+    }
+
+    const handleAckChunk = (response: UploadSignal) => {
+        if (userType === "sender") {
+            sendNextChunk()
         }
     }
 
@@ -203,7 +255,6 @@ export default function CreateFileShare() {
                 actionType: "startUpload"
             }
             wsRef.current.send(JSON.stringify(uploadSignal))
-            console.log("start file upload")
         }
     }
 

@@ -11,5 +11,7 @@ export type UploadSignal = {
     isValidShareLink?: boolean;
     confirmUpload?:boolean;
     chunkIndex?:number;
+    fileName?:string
+    totalChunks?:number
 }
 

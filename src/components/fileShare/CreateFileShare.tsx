@@ -1,12 +1,15 @@
 import copy from "copy-to-clipboard";
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import type { UploadSignal } from "../models";
+import type { UploadSignal } from "../../models/models";
+import ShareLinkBox from "../common/ShareLinkBox";
+import ShowNotification from "../common/ShowNotification";
+import UploadBox from "./UploadBox";
+import { ConfirmDialog } from "../common/ConfirmDialog";
 
 export default function CreateFileShare() {
     const [isReceiver, setIsReceiver] = useState<boolean | null>(null)
     const params = useParams()
-    const [isCopied, setIsCopied] = useState(false)
     const [isValidShareLink, setIsValidShareLink] = useState<boolean | null>(null)
     const userType = isReceiver ? 'receiver' : 'sender'
     const shareLink = (params.token ?? "")
@@ -18,8 +21,10 @@ export default function CreateFileShare() {
     const chunksRef = useRef<Record<number, ArrayBuffer>>({})
     const currentChunkIndexRef = useRef<number>(0)
     const offsetRef = useRef<number>(0)
-    const [showConfirm, setShowConfirm] = useState(false)
-    const [pendingSignal, setPendingSignal] = useState<UploadSignal | null>(null)
+    const shareURL = window.location.href
+    const [open, setOpen] = useState(false)
+    const [openConfirm, setOpenConfirm] = useState(false)
+    const [openSenderConnected, setOpenSenderConnected] = useState(false)
 
     useEffect(() => {
         if (isReceiver === null) return;
@@ -52,7 +57,6 @@ export default function CreateFileShare() {
                     initConn: handleInitConn,
                     startUpload: handleStartUpload,
                     confirmUpload: handleConfirmUpload,
-                    // sendChunk: handleSendChunk,
                     ackChunk: handleAckChunk,
                     uploadComplete: handleUploadComplete
                 }
@@ -80,7 +84,6 @@ export default function CreateFileShare() {
 
     const handleUploadComplete = (response: UploadSignal) => {
         if (userType === "receiver") {
-            console.log("downloading file")
             const fileName = response.fileName ?? ""
             downloadFile(fileName)
         }
@@ -95,10 +98,9 @@ export default function CreateFileShare() {
         }
     }
 
-    const handleStartUpload = (response: UploadSignal) => {
+    const handleStartUpload = () => {
         if (userType === "receiver") {
-            setPendingSignal(response)
-            setShowConfirm(true)
+            setOpenConfirm(true)
         }
     }
 
@@ -116,8 +118,6 @@ export default function CreateFileShare() {
         }
     }
 
-
-
     const sendNextChunk = async () => {
         const file = fileRef.current
         if (!file) return
@@ -125,22 +125,23 @@ export default function CreateFileShare() {
         if (currentChunkIndexRef.current === undefined || currentChunkIndexRef.current === null) {
             currentChunkIndexRef.current = 0
         }
-        if(currentChunkIndexRef.current == totalChunks) {
-            console.log("upload completed")
+        if (currentChunkIndexRef.current == totalChunks) {
             const uploadComplete: UploadSignal = {
-                userType:"sender",
+                userType: "sender",
                 shareLink,
-                actionType:"uploadComplete",
+                actionType: "uploadComplete",
                 fileName: file.name,
                 totalChunks
             }
-            console.log(uploadComplete.fileName)
             wsRef.current?.send(JSON.stringify(uploadComplete))
+
+            offsetRef.current = 0
             return
-            
         }
 
         const chunk = file.slice(offsetRef.current, offsetRef.current + CHUNK_SIZE)
+        console.log(offsetRef.current, offsetRef.current + CHUNK_SIZE)
+        console.log(chunk)
         const buffer = await chunk.arrayBuffer()
         const metadata = JSON.stringify({
             userType: "sender",
@@ -199,6 +200,7 @@ export default function CreateFileShare() {
         a.click();
         document.body.removeChild(a);
 
+
         // Clean up
         URL.revokeObjectURL(url);
     };
@@ -214,9 +216,8 @@ export default function CreateFileShare() {
 
             const chunkData = buffer.slice(4 + metadataLength);
             const chunkIndex = metadata.chunkIndex ?? 0
-            // Now you safely have both metadata and chunk
             chunksRef.current[chunkIndex] = chunkData
-            //ack and then sendNextChunk()
+            console.log(chunksRef.current)
             const ackResponse: UploadSignal = {
                 userType,
                 shareLink,
@@ -227,7 +228,7 @@ export default function CreateFileShare() {
         });
     }
 
-    const handleAckChunk = (response: UploadSignal) => {
+    const handleAckChunk = () => {
         if (userType === "sender") {
             sendNextChunk()
         }
@@ -235,15 +236,12 @@ export default function CreateFileShare() {
 
     useEffect(() => {
         if (isReceiver === null || isValidShareLink === null) return;
-        if (userType === "sender" && !isValidShareLink) {
-            alert("Share link is not valid")
-        }
+        setOpenSenderConnected(true)
     }, [isValidShareLink, isReceiver])
 
-    const handleShareLink = () => {
-        const shareLink = window.location.href
-        copy(shareLink)
-        setIsCopied(true)
+    const handleCopy = () => {
+        copy(shareURL)
+        setOpen(true)
     }
 
 
@@ -273,51 +271,93 @@ export default function CreateFileShare() {
         fileRef.current = null
     }
 
-    const handleConfirm = (confirmUpload: boolean) => {
-        if (!pendingSignal) return;
-
+    const handleConfirm = (confirm: boolean) => {
         var reply: UploadSignal = {
             userType,
             shareLink,
             actionType: "confirmUpload",
-            confirmUpload
+            confirmUpload: confirm
         }
         wsRef.current?.send(JSON.stringify(reply))
-
-        setShowConfirm(false)
-        setPendingSignal(null)
     }
 
     return (
         <main>
             {isReceiver ?
-                <div>
-                    <h1>You are receiving data</h1>
-                    <div className="flex">
-                        <button onClick={handleShareLink} className="cursor-pointer">{isCopied ? "Copied to clipboard" : "Click to share link"}</button>
-                        {/* <button onClick={handleStopReceiving} className="cursor-pointer">Stop Receiving</button> */}
+                <div className="flex flex-col items-center justify-center gap-5">
+                    <h1 className="font-semibold text-2xl">Share the link to start receiving files</h1>
+                    <div>
+                        <ShareLinkBox
+                            shareLink={shareURL}
+                            handleCopy={handleCopy}
+                        />
                     </div>
-                    {showConfirm && (
-                        <div className="modal">
-                            <p>Do you want to accept this file?</p>
-                            <button onClick={() => handleConfirm(true)}>Yes</button>
-                            <button onClick={() => handleConfirm(false)}>No</button>
-                        </div>
-                    )}
+                    <ConfirmDialog open={openConfirm} setOpen={setOpenConfirm} handleClick={handleConfirm} />
+                    <ShowNotification
+                        severity={"success"}
+                        message={"Link Copied!"}
+                        open={open}
+                        setOpen={setOpen}
+                    />
                 </div>
                 :
                 <div>
-                    <h1>You are sending data</h1>
-                    {/* <input type="file" onChange={handleFileChange} /> */}
-                    {!file ?
-                        <input type="file" accept=".pdf, .docx, .doc" onChange={handleFileInput}></input>
-                        : <div>
-                            <a href={fileUrl} target="_blank">{file.name}</a>
-                            <button onClick={handleClearFile}>Clear</button>
-                            <button onClick={handleFileUpload}>Upload</button>
-                        </div>
-                    }
+                    {isValidShareLink === null ?
+                        <p>....Loading</p> :
+                        isValidShareLink ?
+                            <div>
+                                {!file ?
+                                    <div className="flex flex-col justify-center items-center gap-5">
+                                        <h2 className="text-3xl font-semibold">Select a File</h2>
+                                        <UploadBox handleInputChange={handleFileInput} />
+                                    </div> :
+                                    <div className="flex items-center justify-center">
+                                        <div className="flex justify-between items-center bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-sm w-full max-w-md">
+                                            <a
+                                                href={fileUrl}
+                                                target="_blank"
+                                                className="text-blue-600 font-medium truncate hover:underline"
+                                            >
+                                                {file.name}
+                                            </a>
+
+                                            <div className="flex items-center gap-3">
+                                                <button
+                                                    onClick={handleClearFile}
+                                                    className="px-3 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 transition hover:cursor-pointer"
+                                                >
+                                                    Clear
+                                                </button>
+
+                                                <button
+                                                    onClick={handleFileUpload}
+                                                    className="px-3 py-1.5 text-sm rounded-lg bg-[#4A90E2] text-white hover:bg-[#3B7AC2] transition hover:cursor-pointer"
+                                                >
+                                                    Upload
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                }
+
+                                <ShowNotification
+                                    severity={"success"}
+                                    message={"Connected!"}
+                                    open={openSenderConnected}
+                                    setOpen={setOpenSenderConnected} />
+                            </div> :
+                            <div>
+                                <p>Invalid Share Link</p>
+                                <ShowNotification
+                                    severity={"error"}
+                                    message={"Invalid Share Link"}
+                                    open={openSenderConnected}
+                                    setOpen={setOpenSenderConnected} />
+                            </div>}
+
                 </div>}
+
         </main>
     )
 }

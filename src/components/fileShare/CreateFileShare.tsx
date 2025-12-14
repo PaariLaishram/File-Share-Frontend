@@ -347,8 +347,8 @@ export default function CreateFileShare() {
                                     open={openSenderConnected}
                                     setOpen={setOpenSenderConnected} />
                             </div> :
-                            <div>
-                                <p>Invalid Share Link</p>
+                            <div className="flex items-center justify-center">
+                                <p className="font-semibold text-xl">Invalid Share Link</p>
                                 <ShowNotification
                                     severity={"error"}
                                     message={"Invalid Share Link"}

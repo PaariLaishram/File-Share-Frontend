@@ -2,9 +2,8 @@ import { useEffect, useState } from "react";
 import Avatar from "../../assets/images/avatar.png";
 import { useSelector } from "react-redux";
 import type { RootState } from "@/redux/store";
-import { getProfile } from "@/api";
 import type { UserProfile } from "@/models/models";
-import axios from "axios";
+import { useNavigate } from "react-router-dom";
 
 export default function Profile() {
     const profile = useSelector((state: RootState) => state.profile.data)
@@ -13,6 +12,7 @@ export default function Profile() {
         user: 0,
         email: "",
     })
+    const navigate = useNavigate()
 
     useEffect(() => {
         const updated = { ...formData }
@@ -33,7 +33,11 @@ export default function Profile() {
         setIsUpdating(false)
     }
 
-    return (
+    const handleLogin =() => {
+        navigate("/login")
+    }
+
+    return (profile ?
         <div className="flex justify-center px-4 mt-10">
             <div className="w-full max-w-lg">
                 <div className="flex flex-col items-center gap-6 border rounded-xl p-6 shadow-sm bg-white">
@@ -88,6 +92,10 @@ export default function Profile() {
                     </div>
                 </div>
             </div>
+        </div> :
+        <div className="flex flex-col items-center justify-center gap-5">
+            <h2 className="text-3xl font-semibold">Please login</h2>
+            <button onClick={handleLogin} className="bg-[#439eed] px-4 py-2 rounded-4xl w-[125px] text-white cursor-pointer">Login</button>
         </div>
-    );
+    )
 }

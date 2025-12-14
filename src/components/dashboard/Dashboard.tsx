@@ -27,7 +27,7 @@ export default function Dashboard() {
             <h1 className="text-3xl font-semibold mb-4">Start Sharing Files</h1>
             <button
                 onClick={handleStartSharing}
-                className="bg-[#4A90E2] text-white px-5 py-2 rounded-lg hover:bg-[#3B7AC2] transition hover:cursor-pointer"
+                className="btn-primary"
             >
                 Share
             </button>

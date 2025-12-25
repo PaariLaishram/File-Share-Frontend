@@ -6,6 +6,7 @@ import ShareLinkBox from "../common/ShareLinkBox";
 import ShowNotification from "../common/ShowNotification";
 import UploadBox from "./UploadBox";
 import { ConfirmDialog } from "../common/ConfirmDialog";
+import { getWsUrl } from "@/api";
 
 export default function CreateFileShare() {
     const [isReceiver, setIsReceiver] = useState<boolean | null>(null)
@@ -28,7 +29,7 @@ export default function CreateFileShare() {
 
     useEffect(() => {
         if (isReceiver === null) return;
-        const ws = new WebSocket("ws://localhost:9903/ws")
+        const ws = new WebSocket(getWsUrl)
         ws.binaryType = "arraybuffer"
         wsRef.current = ws
 

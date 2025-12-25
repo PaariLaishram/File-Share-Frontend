@@ -10,7 +10,7 @@ type ApiSingleResponse<T> = {
     result?: T,
     count: number
 }
-
+export const getWsUrl = import.meta.env.VITE_WS_URL
 const baseUrl = import.meta.env.VITE_BASE_URL
 
 // export const getAuthenticationStatus = async(header:any): Promise<ApiSingleResponse<Authentication>> => _callApi("/auth/status", "get", header)

@@ -10,7 +10,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../redux/store'; //
 import { useNavigate } from "react-router-dom";
 import { logout } from "@/api";
-import { resetAuthSlice, updateAuthSlice } from "@/redux/features/authSlice";
+import { resetAuthSlice } from "@/redux/features/authSlice";
 import { resetProfile } from "@/redux/features/profileSlice";
 
 export default function Settings() {

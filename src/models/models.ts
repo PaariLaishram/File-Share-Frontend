@@ -36,5 +36,8 @@ export type UploadSignal = {
     chunkIndex?:number;
     fileName?:string
     totalChunks?:number
+    offer?:RTCSessionDescriptionInit;
+    answer?: RTCSessionDescriptionInit;
+    candidate?: RTCIceCandidateInit
 }
 

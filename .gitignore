@@ -25,3 +25,6 @@ dist-ssr
 
 *.pem
 .gitignore
+.env*
+.dockerfile
+.dockerignore

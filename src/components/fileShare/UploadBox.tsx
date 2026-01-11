@@ -18,7 +18,7 @@ export default function UploadBox(props: Props) {
             <input
                 type="file"
                 ref={inputRef}
-                accept=".pdf, .docx, .doc"
+                accept=".mp4, .pdf, .docx"
                 onChange={props.handleInputChange}
                 style={{ display: "none" }}
             />

@@ -38,6 +38,6 @@ export type UploadSignal = {
     totalChunks?:number
     offer?:RTCSessionDescriptionInit;
     answer?: RTCSessionDescriptionInit;
-    candidate?: RTCIceCandidateInit
+    candidate?: RTCIceCandidate;
 }
 

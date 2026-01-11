@@ -5,66 +5,147 @@ import ShowNotification from "../common/ShowNotification";
 import copy from "copy-to-clipboard";
 import { getWsUrl } from "@/api";
 import type { UploadSignal } from "@/models/models";
+import { configuration } from "./config";
 
 
 type Props = {
     shareLink: string
 }
 
+type Meta = {
+    name: string,
+    size: number,
+    mime: string
+}
+
 export default function Receiver(props: Props) {
     const [openConfirm, setOpenConfirm] = useState(false)
     const [open, setOpen] = useState(false)
     const shareURL = window.location.href
-    const ws = new WebSocket(getWsUrl)
-    const peerConnRef = useRef<RTCPeerConnection | null>(null)
+    const ws = useRef<WebSocket | null>(null)
+    const peerConnection = useRef<RTCPeerConnection | null>(null)
+    const pendingIce: RTCIceCandidateInit[] = []
+    const meta = useRef<Meta | null>(null)
+    const [progessPercent, setProgressPercent] = useState(0)
+    const currentFileSize = useRef(0)
 
     useEffect(() => {
+        if (ws.current) return
+        ws.current = new WebSocket(getWsUrl)
         const initSignal: UploadSignal = {
             userType: "receiver",
             shareLink: props.shareLink,
             actionType: "initConn"
         }
-        ws.onopen = () => {
-            ws.send(JSON.stringify(initSignal))
+        ws.current.onopen = () => {
+            ws.current?.send(JSON.stringify(initSignal))
         }
 
-        ws.onmessage = (event) => {
+        ws.current.onmessage = (event) => {
             const response: UploadSignal = JSON.parse(event.data)
             const handlers: Record<string, (msg: UploadSignal) => void> = {
                 createOffer: handleCreateOffer,
+                iceCandidate: handleIceCandidate
             }
 
             const handler = handlers[response.actionType]
             if (handler) handler(response)
             else console.warn("Warning, uknown action type: ", response.actionType)
         }
+    }, [props.shareLink])
 
-    }, [])
+    const handleIceCandidate = async (msg: UploadSignal) => {
+        if (!peerConnection.current || !msg.candidate) return
 
-
-    const handleCreateOffer = async (msg: UploadSignal) => {
-        if (!msg.offer) {
-            console.error("Error offer field is null")
+        if (!peerConnection.current.remoteDescription) {
+            pendingIce.push(msg.candidate)
             return
         }
-        const configuration = {
-            iceServers: [
-                { urls: "stun:stun.l.google.com:19302" },
-                { urls: "stun:stun1.l.google.com:19302" },
-                { urls: "stun:stun2.l.google.com:19302" }
-            ]
+        await peerConnection.current.addIceCandidate(
+            new RTCIceCandidate(msg.candidate)
+        )
+    }
+
+    const handleCreateOffer = async (msg: UploadSignal) => {
+        console.log(msg)
+        if (!msg.offer) {
+            console.error("error: offer is undefined")
+            return
         }
-        peerConnRef.current = new RTCPeerConnection(configuration)
-        peerConnRef.current.setRemoteDescription(new RTCSessionDescription(msg.offer))
-        const answer = await peerConnRef.current.createAnswer()
-        await peerConnRef.current.setLocalDescription(answer)
+        peerConnection.current = new RTCPeerConnection(configuration)
+        peerConnection.current.onconnectionstatechange = () => {
+            console.log("PeerConnection state:", peerConnection?.current?.connectionState)
+        }
+        peerConnection.current.addEventListener('icecandidate', e => {
+            if (e.candidate) {
+                const msg: UploadSignal = {
+                    userType: "sender",
+                    shareLink: props.shareLink,
+                    actionType: "iceCandidate",
+                    candidate: e.candidate
+                }
+                ws.current?.send(JSON.stringify(msg))
+            } else {
+                console.log("ICE gathering complete")
+            }
+        })
+
+        await peerConnection.current.setRemoteDescription(msg.offer)
+        let receivedBuffer: ArrayBuffer[] = []
+        peerConnection.current.ondatachannel = event => {
+            const dc = event.channel
+
+            dc.onopen = () => {
+                console.log("Data channel open")
+            }
+
+            dc.onmessage = (event) => {
+                //metadata
+                if (typeof event.data === "string") {
+                    const msg = JSON.parse(event.data)
+                    if (msg.type === "meta") {
+                        const metaData: Meta = {
+                            name: msg.name,
+                            size: msg.size,
+                            mime: msg.mime
+                        }
+                        meta.current = metaData
+                    }
+                    if (msg.type === "done" && meta.current) {
+                        const blob = new Blob(receivedBuffer, { type: meta.current.mime })
+                        const url = URL.createObjectURL(blob)
+                        const a = document.createElement("a")
+                        a.href = url
+                        a.download = meta.current.name
+                        a.click()
+                        console.log("File received")
+                        meta.current = null
+                        currentFileSize.current = 0
+                    }
+                } else {
+                    if (meta.current) {
+                        currentFileSize.current += event.data.byteLength
+                        const percent = ( currentFileSize.current/ meta.current.size) * 100
+                        setProgressPercent(percent)
+                        receivedBuffer.push(event.data)
+                    }
+
+                }
+            }
+
+        }
+        const answer = await peerConnection.current.createAnswer()
+        await peerConnection.current.setLocalDescription(answer)
+
         const answerMsg: UploadSignal = {
-            answer: answer,
-            actionType: "answerOffer",
             userType: "receiver",
+            actionType: "answerOffer",
+            answer: answer,
             shareLink: props.shareLink
         }
-        ws.send(JSON.stringify(answerMsg))
+
+        ws.current?.send(JSON.stringify(answerMsg))
+
     }
 
     const handleCopy = () => {
@@ -78,20 +159,30 @@ export default function Receiver(props: Props) {
 
     return (
         <div className="flex flex-col items-center justify-center gap-5">
-            <h1 className="font-semibold text-2xl">Share the link to start receiving files</h1>
-            <div>
-                <ShareLinkBox
-                    shareLink={shareURL}
-                    handleCopy={handleCopy}
-                />
-            </div>
-            <ConfirmDialog open={openConfirm} setOpen={setOpenConfirm} handleClick={handleConfirm} />
-            <ShowNotification
-                severity={"success"}
-                message={"Link Copied!"}
-                open={open}
-                setOpen={setOpen}
-            />
+            {meta.current ?
+                <div>
+                    <h2>File Share in Progess</h2>
+                    <progress className="upload-progess" max={meta.current.size} value={currentFileSize.current} />
+                </div> :
+                <div>
+                     {/* <progress className="upload-progess" max={100} value={50} /> */}
+                    <h1 className="font-semibold text-2xl">Share the link to start receiving files</h1>
+                    <div>
+                        <ShareLinkBox
+                            shareLink={shareURL}
+                            handleCopy={handleCopy}
+                        />
+                    </div>
+                    <ConfirmDialog open={openConfirm} setOpen={setOpenConfirm} handleClick={handleConfirm} />
+                    <ShowNotification
+                        severity={"success"}
+                        message={"Link Copied!"}
+                        open={open}
+                        setOpen={setOpen}
+                    />
+                </div>}
+
+
         </div>
     )
 }

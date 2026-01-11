@@ -3,43 +3,50 @@ import UploadBox from "./UploadBox"
 import ShowNotification from "../common/ShowNotification"
 import { getWsUrl } from "@/api"
 import type { UploadSignal } from "@/models/models"
+import { configuration } from "./config"
 
 type Props = {
     shareLink: string
 }
+
 
 export default function Sender(props: Props) {
     const [isValidShareLink, setIsValidShareLink] = useState<boolean | null>(null)
     const [open, setOpen] = useState(false)
     const [file, setFile] = useState<File | null>(null)
     const [fileUrl, setFileUrl] = useState("")
-    const ws = new WebSocket(getWsUrl)
-    const peerConnRef = useRef<RTCPeerConnection | null>(null)
-
+    const ws = useRef<WebSocket | null>(null)
+    const peerConnection = useRef<RTCPeerConnection | null>(null)
+    const pendingIce: RTCIceCandidateInit[] = []
+    const dataChannelRef = useRef<RTCDataChannel | null>(null)
+    const CHUNK_SIZE = 16 * 1024
 
     useEffect(() => {
+        if (ws.current) return
+        ws.current = new WebSocket(getWsUrl)
         const initSignal: UploadSignal = {
             userType: "sender",
             shareLink: props.shareLink,
             actionType: "initConn"
         }
-        ws.onopen = () => {
-            ws.send(JSON.stringify(initSignal))
+        ws.current.onopen = () => {
+            ws?.current?.send(JSON.stringify(initSignal))
         }
 
-        ws.onmessage = (event) => {
+        ws.current.onmessage = (event) => {
             const response: UploadSignal = JSON.parse(event.data)
             const handlers: Record<string, (msg: UploadSignal) => void> = {
                 initConn: handleInitConn,
                 answerOffer: handleAnswerOffer,
-
+                iceCandidate: handleIceCandidate,
             }
 
             const handler = handlers[response.actionType]
             if (handler) handler(response)
             else console.warn("Warning, uknown action type: ", response.actionType)
         }
-    }, [])
+
+    }, [props.shareLink])
 
     const handleInitConn = (msg: UploadSignal) => {
         if (msg.isValidShareLink) {
@@ -51,41 +58,115 @@ export default function Sender(props: Props) {
         }
     }
 
-    const handleAnswerOffer = (msg: UploadSignal) => {
-        console.log(msg)
+    const handleIceCandidate = async (msg: UploadSignal) => {
+        if (!peerConnection.current || !msg.candidate) return
+
+        if (!peerConnection.current.remoteDescription) {
+            pendingIce.push(msg.candidate)
+            return
+        }
+        await peerConnection.current.addIceCandidate(
+            new RTCIceCandidate(msg.candidate)
+        )
     }
 
     const createPeerConnection = async () => {
-        const configuration = {
-            iceServers: [
-                { urls: "stun:stun.l.google.com:19302" },
-                { urls: "stun:stun1.l.google.com:19302" },
-                { urls: "stun:stun2.l.google.com:19302" }
-            ]
+        peerConnection.current = new RTCPeerConnection(configuration)
+        peerConnection.current.onconnectionstatechange = () => {
+            console.log("PeerConnection state:", peerConnection?.current?.connectionState)
+        }
+        peerConnection.current.addEventListener('icecandidate', e => {
+            if (e.candidate) {
+                const msg: UploadSignal = {
+                    userType: "sender",
+                    shareLink: props.shareLink,
+                    actionType: "iceCandidate",
+                    candidate: e.candidate
+                }
+                ws.current?.send(JSON.stringify(msg))
+            } else {
+                console.log("ICE gathering complete")
+            }
+        })
+        const dataChannel = peerConnection.current.createDataChannel("test")
+        dataChannel.binaryType = "arraybuffer"
+        dataChannel.onopen = () => {
+            console.log("Data channel open ready to send file")
         }
 
-        // const peerConnection = new RTCPeerConnection(configuration)
-        peerConnRef.current = new RTCPeerConnection(configuration)
-        const offer = await peerConnRef.current.createOffer()
-        await peerConnRef.current.setLocalDescription(offer)
-        const offerMsg: UploadSignal = {
-            offer: offer,
-            actionType: "createOffer",
+        dataChannelRef.current = dataChannel
+
+        const offer = await peerConnection.current.createOffer()
+        await peerConnection.current.setLocalDescription(offer)
+
+        const msg: UploadSignal = {
             userType: "sender",
             shareLink: props.shareLink,
+            actionType: "createOffer",
+            offer: offer
         }
-        ws.send(JSON.stringify(offerMsg))
+        ws.current?.send(JSON.stringify(msg))
     }
 
-    const handleFileInput = () => {
+    const handleAnswerOffer = async (msg: UploadSignal) => {
+        console.log(msg)
+        if (!msg.answer) {
+            console.error("error: answer is undefined")
+            return
+        }
+        await peerConnection.current?.setRemoteDescription(msg.answer)
+        pendingIce.forEach(c =>
+            peerConnection.current?.addIceCandidate(new RTCIceCandidate(c))
+        )
+        pendingIce.length = 0
+    }
 
+    const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.currentTarget.files
+        if (files) {
+            setFile(files[0])
+            const url = URL.createObjectURL(files[0])
+            setFileUrl(url)
+        }
     }
 
     const handleClearFile = () => {
-
+        setFile(null)
     }
 
-    const handleFileUpload = () => {
+    const handleSendFIle = async () => {
+        const dc = dataChannelRef.current
+        if (!dc || dc.readyState !== 'open') {
+            console.log("data channel is not open")
+            return
+        }
+
+        dc.send(JSON.stringify({
+            type: "meta",
+            name: file?.name,
+            size: file?.size,
+            mime: file?.type
+        }))
+
+        //Send file data
+        if (file) {
+            const buffer = await file?.arrayBuffer()
+            const chunk_size = 16  * 1024 // 16 KB
+            const fileSize = file.size
+            let offset = 0
+            while(offset <= buffer.byteLength)  {
+                let end = offset + chunk_size
+                if (end > fileSize) {
+                    end = fileSize
+                }
+                let chunk = buffer.slice(offset, end)
+                dc.send(chunk)
+                offset+=chunk_size
+            }  
+
+            dc.send(JSON.stringify({type:"done"}))
+
+        }
 
     }
 
@@ -119,10 +200,10 @@ export default function Sender(props: Props) {
                                         </button>
 
                                         <button
-                                            onClick={handleFileUpload}
+                                            onClick={handleSendFIle}
                                             className="px-3 py-1.5 text-sm rounded-lg bg-[#4A90E2] text-white hover:bg-[#3B7AC2] transition hover:cursor-pointer"
                                         >
-                                            Upload
+                                            Send
                                         </button>
                                     </div>
                                 </div>

@@ -20,6 +20,7 @@ export default function Sender(props: Props) {
     const pendingIce: RTCIceCandidateInit[] = []
     const dataChannelRef = useRef<RTCDataChannel | null>(null)
     const CHUNK_SIZE = 16 * 1024
+    console.log(props.shareLink)
 
     useEffect(() => {
         if (ws.current) return
@@ -69,7 +70,8 @@ export default function Sender(props: Props) {
             new RTCIceCandidate(msg.candidate)
         )
     }
-
+    //Create a new RTCPeerConnection which takes in the list of ice servers
+    //Gather ICE candidates
     const createPeerConnection = async () => {
         peerConnection.current = new RTCPeerConnection(configuration)
         peerConnection.current.onconnectionstatechange = () => {
@@ -88,6 +90,10 @@ export default function Sender(props: Props) {
                 console.log("ICE gathering complete")
             }
         })
+        //Data channel - api used to send arbitrary data over RTCPeerConnection
+        //ArrayBuffer - buffer used to hold binary data(bytes)
+        //Cannot directly read or write values from an ArrayBuffer
+        //have to cast to Uint8Array Int32Array Float64Array DataView
         const dataChannel = peerConnection.current.createDataChannel("test")
         dataChannel.binaryType = "arraybuffer"
         dataChannel.onopen = () => {
@@ -95,8 +101,9 @@ export default function Sender(props: Props) {
         }
 
         dataChannelRef.current = dataChannel
-
+        //Create offer creats a new SDP offer 
         const offer = await peerConnection.current.createOffer()
+        //Changes the local description associated with the peer connection
         await peerConnection.current.setLocalDescription(offer)
 
         const msg: UploadSignal = {
@@ -108,8 +115,8 @@ export default function Sender(props: Props) {
         ws.current?.send(JSON.stringify(msg))
     }
 
+    //handle SDP answer sent from receiver
     const handleAnswerOffer = async (msg: UploadSignal) => {
-        console.log(msg)
         if (!msg.answer) {
             console.error("error: answer is undefined")
             return
@@ -134,13 +141,50 @@ export default function Sender(props: Props) {
         setFile(null)
     }
 
-    const handleSendFIle = async () => {
+    // const handleSendFile = async () => {
+    //     const dc = dataChannelRef.current
+    //     if (!dc || dc.readyState !== 'open') {
+    //         console.log("data channel is not open")
+    //         return
+    //     }
+    //     //Send data over the datachannel 
+    //     dc.send(JSON.stringify({
+    //         type: "meta",
+    //         name: file?.name,
+    //         size: file?.size,
+    //         mime: file?.type
+    //     }))
+
+    //     //Send file data
+    //     if (file) {
+    //         const buffer = await file?.arrayBuffer()
+    //         const chunk_size = 16  * 1024 // 16 KB
+    //         const fileSize = file.size
+    //         let offset = 0
+    //         while(offset <= buffer.byteLength)  {
+    //             let end = offset + chunk_size
+    //             if (end > fileSize) {
+    //                 end = fileSize
+    //             }
+    //             let chunk = buffer.slice(offset, end)
+    //             dc.send(chunk)
+    //             offset+=chunk_size
+    //         }  
+
+    //         dc.send(JSON.stringify({type:"done"}))
+
+    //     }
+
+    // }
+
+    const handleSendFile = async () => {
         const dc = dataChannelRef.current
-        if (!dc || dc.readyState !== 'open') {
-            console.log("data channel is not open")
+        if (!dc || dc.readyState !== "open") {
+            console.log("Data channel is not open")
             return
         }
 
+        // Send metadata
         dc.send(JSON.stringify({
             type: "meta",
             name: file?.name,
@@ -148,27 +192,43 @@ export default function Sender(props: Props) {
             mime: file?.type
         }))
 
-        //Send file data
-        if (file) {
-            const buffer = await file?.arrayBuffer()
-            const chunk_size = 16  * 1024 // 16 KB
-            const fileSize = file.size
-            let offset = 0
-            while(offset <= buffer.byteLength)  {
-                let end = offset + chunk_size
-                if (end > fileSize) {
-                    end = fileSize
+        if (!file) return
+
+        const buffer = await file.arrayBuffer()
+        const chunkSize = 16 * 1024 // 16 KB
+        let offset = 0
+
+        const waitForBufferDrain = () =>
+            new Promise<void>((resolve) => {
+                if (dc.bufferedAmount < dc.bufferedAmountLowThreshold) {
+                    resolve()
+                } else {
+                    //Fired when dc.bufferedAmount < dc.BufferedAmountLowThreshold 
+                    // when safe to add to dc queue
+                    dc.onbufferedamountlow = () => {
+                        //setting it null to ensure handler runs only once
+                        dc.onbufferedamountlow = null
+                        resolve()
+                    }
                 }
-                let chunk = buffer.slice(offset, end)
-                dc.send(chunk)
-                offset+=chunk_size
-            }  
+            })
 
-            dc.send(JSON.stringify({type:"done"}))
+        while (offset < buffer.byteLength) {
+            //If dc queue is more than 8 MB drain it
+            if (dc.bufferedAmount > 8 * 1024 * 1024) {
+                await waitForBufferDrain()
+            }
 
+            const end = Math.min(offset + chunkSize, buffer.byteLength)
+            const chunk = buffer.slice(offset, end)
+
+            dc.send(chunk)
+            offset = end
         }
 
+        dc.send(JSON.stringify({ type: "done" }))
     }
+
 
     return (
         <div>
@@ -200,7 +260,7 @@ export default function Sender(props: Props) {
                                         </button>
 
                                         <button
-                                            onClick={handleSendFIle}
+                                            onClick={handleSendFile}
                                             className="px-3 py-1.5 text-sm rounded-lg bg-[#4A90E2] text-white hover:bg-[#3B7AC2] transition hover:cursor-pointer"
                                         >
                                             Send

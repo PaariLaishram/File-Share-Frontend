@@ -28,30 +28,49 @@ export default function Receiver(props: Props) {
     const meta = useRef<Meta | null>(null)
     const [progessPercent, setProgressPercent] = useState(0)
     const currentFileSize = useRef(0)
+    const [wasClosed, setWasClosed] = useState(false)
 
     useEffect(() => {
-        if (ws.current) return
-        ws.current = new WebSocket(getWsUrl)
-        const initSignal: UploadSignal = {
-            userType: "receiver",
-            shareLink: props.shareLink,
-            actionType: "initConn"
-        }
-        ws.current.onopen = () => {
-            ws.current?.send(JSON.stringify(initSignal))
-        }
-
-        ws.current.onmessage = (event) => {
-            const response: UploadSignal = JSON.parse(event.data)
-            const handlers: Record<string, (msg: UploadSignal) => void> = {
-                createOffer: handleCreateOffer,
-                iceCandidate: handleIceCandidate
+        const connect = () => {
+            if (ws.current) return
+            ws.current = new WebSocket(getWsUrl)
+            const initSignal: UploadSignal = {
+                userType: "receiver",
+                shareLink: props.shareLink,
+                actionType: "initConn"
+            }
+            ws.current.onopen = () => {
+                ws.current?.send(JSON.stringify(initSignal))
             }
 
-            const handler = handlers[response.actionType]
-            if (handler) handler(response)
-            else console.warn("Warning, uknown action type: ", response.actionType)
+            ws.current.onmessage = (event) => {
+                const response: UploadSignal = JSON.parse(event.data)
+                const handlers: Record<string, (msg: UploadSignal) => void> = {
+                    createOffer: handleCreateOffer,
+                    iceCandidate: handleIceCandidate
+                }
+
+                const handler = handlers[response.actionType]
+                if (handler) handler(response)
+                else console.warn("Warning, uknown action type: ", response.actionType)
+            }
+            ws.current.onclose = () => {
+                ws.current = null
+                 setWasClosed(true)
+            }
         }
+
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible" && wasClosed) {
+                connect()
+                console.log("reconnecting...")
+            } 
+            if(document.visibilityState === "hidden") {
+                console.log("hidden")
+            }
+        })
+
+        connect()
     }, [props.shareLink])
 
     const handleIceCandidate = async (msg: UploadSignal) => {
@@ -66,8 +85,8 @@ export default function Receiver(props: Props) {
         )
     }
 
+    //handle the createOffer sent from sender
     const handleCreateOffer = async (msg: UploadSignal) => {
-        console.log(msg)
         if (!msg.offer) {
             console.error("error: offer is undefined")
             return
@@ -79,7 +98,7 @@ export default function Receiver(props: Props) {
         peerConnection.current.addEventListener('icecandidate', e => {
             if (e.candidate) {
                 const msg: UploadSignal = {
-                    userType: "sender",
+                    userType: "receiver",
                     shareLink: props.shareLink,
                     actionType: "iceCandidate",
                     candidate: e.candidate
@@ -92,13 +111,14 @@ export default function Receiver(props: Props) {
 
         await peerConnection.current.setRemoteDescription(msg.offer)
         let receivedBuffer: ArrayBuffer[] = []
+        //Remote peer can receive data channel by listening using ondatachannel event on the RTCPeerConnection obj
         peerConnection.current.ondatachannel = event => {
             const dc = event.channel
-
+            //Need to wait for channel to open before sending data
             dc.onopen = () => {
                 console.log("Data channel open")
             }
-
+            //Receive the dc sent message
             dc.onmessage = (event) => {
                 //metadata
                 if (typeof event.data === "string") {
@@ -121,11 +141,12 @@ export default function Receiver(props: Props) {
                         console.log("File received")
                         meta.current = null
                         currentFileSize.current = 0
+
                     }
                 } else {
                     if (meta.current) {
                         currentFileSize.current += event.data.byteLength
-                        const percent = ( currentFileSize.current/ meta.current.size) * 100
+                        const percent = (currentFileSize.current / meta.current.size) * 100
                         setProgressPercent(percent)
                         receivedBuffer.push(event.data)
                     }
@@ -165,7 +186,7 @@ export default function Receiver(props: Props) {
                     <progress className="upload-progess" max={meta.current.size} value={currentFileSize.current} />
                 </div> :
                 <div>
-                     {/* <progress className="upload-progess" max={100} value={50} /> */}
+                    {/* <progress className="upload-progess" max={100} value={50} /> */}
                     <h1 className="font-semibold text-2xl">Share the link to start receiving files</h1>
                     <div>
                         <ShareLinkBox

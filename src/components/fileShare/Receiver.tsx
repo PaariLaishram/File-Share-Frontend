@@ -4,8 +4,10 @@ import ShareLinkBox from "../common/ShareLinkBox";
 import ShowNotification from "../common/ShowNotification";
 import copy from "copy-to-clipboard";
 import { getWsUrl } from "@/api";
-import type { UploadSignal } from "@/models/models";
+import type { NotificationModel, UploadSignal } from "@/models/models";
 import { configuration } from "./config";
+import ProgressBar from "../common/ProgressBar";
+import { convertBytes } from "@/lib/utils";
 
 
 type Props = {
@@ -20,13 +22,17 @@ type Meta = {
 
 export default function Receiver(props: Props) {
     const [openConfirm, setOpenConfirm] = useState(false)
-    const [open, setOpen] = useState(false)
+    const [open, setOpen] = useState<NotificationModel>({
+        open: false,
+        message: "",
+        severity: "success"
+    })
     const shareURL = window.location.href
     const ws = useRef<WebSocket | null>(null)
     const peerConnection = useRef<RTCPeerConnection | null>(null)
     const pendingIce: RTCIceCandidateInit[] = []
     const meta = useRef<Meta | null>(null)
-    const [progessPercent, setProgressPercent] = useState(0)
+    const [progressPercent, setProgressPercent] = useState(0)
     const currentFileSize = useRef(0)
     const [wasClosed, setWasClosed] = useState(false)
 
@@ -56,7 +62,7 @@ export default function Receiver(props: Props) {
             }
             ws.current.onclose = () => {
                 ws.current = null
-                 setWasClosed(true)
+                setWasClosed(true)
             }
         }
 
@@ -64,8 +70,8 @@ export default function Receiver(props: Props) {
             if (document.visibilityState === "visible" && wasClosed) {
                 connect()
                 console.log("reconnecting...")
-            } 
-            if(document.visibilityState === "hidden") {
+            }
+            if (document.visibilityState === "hidden") {
                 console.log("hidden")
             }
         })
@@ -141,6 +147,7 @@ export default function Receiver(props: Props) {
                         console.log("File received")
                         meta.current = null
                         currentFileSize.current = 0
+                        receivedBuffer = []
 
                     }
                 } else {
@@ -171,7 +178,11 @@ export default function Receiver(props: Props) {
 
     const handleCopy = () => {
         copy(shareURL)
-        setOpen(true)
+        setOpen({
+            open: true,
+            severity: "success",
+            message: "Link Copied!"
+        })
     }
 
     const handleConfirm = () => {
@@ -179,15 +190,38 @@ export default function Receiver(props: Props) {
     }
 
     return (
-        <div className="flex flex-col items-center justify-center gap-5">
+        <main className="w-full px-4">
             {meta.current ?
-                <div>
-                    <h2>File Share in Progess</h2>
-                    <progress className="upload-progess" max={meta.current.size} value={currentFileSize.current} />
-                </div> :
-                <div>
-                    {/* <progress className="upload-progess" max={100} value={50} /> */}
-                    <h1 className="font-semibold text-2xl">Share the link to start receiving files</h1>
+              <section>
+                    <div className="flex flex-col px-4 gap-3">
+                        <h3 className="font-semibold text-gray-800 text-2xl text-center">Receiving File</h3>
+                        <div className="flex flex-col items-center justify-center">
+                            <div className="flex gap-1">
+                                <label className="text-gray-700">File Name:</label>
+                                <span className="text-gray-700">{meta.current.name}</span>
+                            </div>
+                           <div className="flex gap-1">
+                                <label className="text-gray-700">File Size:</label>
+                                <span className="text-gray-700">{convertBytes(meta.current.size)}</span>
+                            </div>
+                        </div>
+                        {/* <progress max={file.size} value={sentFileSize.current} /> */}
+                        <p className="text-center text-gray-700">Estimated time remaining: 30 minutes</p>
+                        <div className="max-w-xs w-full mx-auto px-2">
+                            <ProgressBar progress={progressPercent} />
+                        </div>
+                    </div>
+                </section>
+                :
+                <section className="flex flex-col items-center justify-center">
+                    <div className="flex flex-col items-center justify-center">
+                        <h1 className="text-3xl font-semibold text-gray-900 mb-3 text-center">
+                            Share the link to receive files
+                        </h1>
+                        <p className="text-gray-600 mb-8">
+                            Supported file formats: <span className="font-bold text-gray-800">PDF, MP4, JPEG</span>
+                        </p>
+                    </div>
                     <div>
                         <ShareLinkBox
                             shareLink={shareURL}
@@ -195,15 +229,14 @@ export default function Receiver(props: Props) {
                         />
                     </div>
                     <ConfirmDialog open={openConfirm} setOpen={setOpenConfirm} handleClick={handleConfirm} />
-                    <ShowNotification
-                        severity={"success"}
-                        message={"Link Copied!"}
-                        open={open}
-                        setOpen={setOpen}
-                    />
-                </div>}
-
-
-        </div>
+                </section>
+            }
+            <ShowNotification
+                severity={open.severity}
+                message={open.message}
+                open={open.open}
+                setOpen={setOpen}
+            />
+        </main>
     )
 }

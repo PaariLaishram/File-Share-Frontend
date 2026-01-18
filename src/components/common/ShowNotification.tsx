@@ -1,10 +1,11 @@
+import type { NotificationModel } from "../../models/models";
 import { Alert, Snackbar } from "@mui/material"
 
 type Props = {
     severity: "success" | "error" | "info" | "warning",
     message: string,
     open: boolean,
-    setOpen:React.Dispatch<React.SetStateAction<boolean>>
+    setOpen:React.Dispatch<React.SetStateAction<NotificationModel>>
     autoHideDuration?:number;
 }
 
@@ -13,7 +14,11 @@ export default function ShowNotification({severity, message, open, setOpen, auto
         <Snackbar
             open={open}
             autoHideDuration={autoHideDuration}
-            onClose={() => setOpen(false)}
+            // onClose={() => setOpen(false)}]
+            onClose={()=> setOpen(prev => ({
+                ...prev,
+                open: false
+            }))}
             anchorOrigin={{ vertical: "top", horizontal: "center" }}
             ContentProps={{
                 sx: {
@@ -31,8 +36,14 @@ export default function ShowNotification({severity, message, open, setOpen, auto
             <Alert
                 severity={severity}
                 variant="standard"
-                onClose={() => setOpen(false)}
-                sx={{ width: '100%' }}
+                 onClose={()=> setOpen(prev => ({
+                ...prev,
+                open: false
+            }))}
+                sx={{ width: {
+                    xs:"50%",
+                    sm:"100%"
+                } }}
             >
                 {message}
             </Alert>

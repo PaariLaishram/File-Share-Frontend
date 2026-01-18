@@ -22,10 +22,6 @@ export default function CreateFileShare() {
         }
     }, [params])
 
-
-    return (
-        <main>
-            {isReceiver ? <Receiver shareLink={shareLink} /> : <Sender shareLink={shareLink} />}
-        </main>
-    )
+    const component = isReceiver ? <Receiver shareLink={shareLink} /> : <Sender shareLink={shareLink} />
+    return component
 }

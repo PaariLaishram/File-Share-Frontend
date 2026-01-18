@@ -2,25 +2,39 @@ import { useEffect, useRef, useState } from "react"
 import UploadBox from "./UploadBox"
 import ShowNotification from "../common/ShowNotification"
 import { getWsUrl } from "@/api"
-import type { UploadSignal } from "@/models/models"
+import type { NotificationModel, UploadSignal } from "@/models/models"
 import { configuration } from "./config"
+import Swal from 'sweetalert2'
+import withReactContent from 'sweetalert2-react-content'
+import ProgressBar from "../common/ProgressBar"
 
 type Props = {
     shareLink: string
 }
 
+const allowedFileTypes = [
+    "video/mp4",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "image/jpeg"
+]
 
 export default function Sender(props: Props) {
+    const MySwal = withReactContent(Swal)
     const [isValidShareLink, setIsValidShareLink] = useState<boolean | null>(null)
-    const [open, setOpen] = useState(false)
+    const [open, setOpen] = useState<NotificationModel>({
+        open: false,
+        message: "",
+        severity: "success"
+    })
     const [file, setFile] = useState<File | null>(null)
     const [fileUrl, setFileUrl] = useState("")
     const ws = useRef<WebSocket | null>(null)
     const peerConnection = useRef<RTCPeerConnection | null>(null)
     const pendingIce: RTCIceCandidateInit[] = []
     const dataChannelRef = useRef<RTCDataChannel | null>(null)
-    const CHUNK_SIZE = 16 * 1024
-    console.log(props.shareLink)
+    const sentFileSize = useRef(0);
+    const [progressPercent, setProgressPercent] = useState(0)
 
     useEffect(() => {
         if (ws.current) return
@@ -52,9 +66,18 @@ export default function Sender(props: Props) {
     const handleInitConn = (msg: UploadSignal) => {
         if (msg.isValidShareLink) {
             setIsValidShareLink(true)
-            setOpen(true)
+            setOpen({
+                open: true,
+                severity: "success",
+                message: "Connected with receiver!"
+            })
             createPeerConnection()
         } else {
+            setOpen({
+                open: true,
+                severity: "error",
+                message: "Receiver Share Link is Invalid!"
+            })
             setIsValidShareLink(false)
         }
     }
@@ -128,11 +151,21 @@ export default function Sender(props: Props) {
         pendingIce.length = 0
     }
 
-    const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.currentTarget.files
+    const handleFileInput = (files: FileList | null) => {
+        if (!files || files.length === 0) return;
+        console.log(files)
         if (files) {
-            setFile(files[0])
-            const url = URL.createObjectURL(files[0])
+            const uploaded_file = files[0]
+            if (!allowedFileTypes.includes(uploaded_file.type)) {
+                setOpen({
+                    open: true,
+                    message: "Unsupported File Type",
+                    severity: "error"
+                })
+                return
+            }
+            setFile(uploaded_file)
+            const url = URL.createObjectURL(uploaded_file)
             setFileUrl(url)
         }
     }
@@ -178,6 +211,7 @@ export default function Sender(props: Props) {
     // }
 
     const handleSendFile = async () => {
+        console.log(file)
         const dc = dataChannelRef.current
         if (!dc || dc.readyState !== "open") {
             console.log("Data channel is not open")
@@ -193,7 +227,7 @@ export default function Sender(props: Props) {
         }))
 
         if (!file) return
-
+        const fileSize = file.size
         const buffer = await file.arrayBuffer()
         const chunkSize = 16 * 1024 // 16 KB
         let offset = 0
@@ -219,73 +253,116 @@ export default function Sender(props: Props) {
                 await waitForBufferDrain()
             }
 
-            const end = Math.min(offset + chunkSize, buffer.byteLength)
+            let end = offset + chunkSize
+            if (end > fileSize) {
+                end = fileSize
+            }
             const chunk = buffer.slice(offset, end)
-
+            sentFileSize.current += chunkSize
+            const percent = (sentFileSize.current / file.size) * 100
+            setProgressPercent(percent)
             dc.send(chunk)
             offset = end
         }
 
         dc.send(JSON.stringify({ type: "done" }))
+        sentFileSize.current = 0
+        setFile(null)
+        showSwal()
+    }
+
+    const showSwal = () => {
+        Swal.fire({
+            title: "File Sent!",
+            text: "Your file has been sent",
+            icon: "success"
+        })
     }
 
 
+    // useEffect(() => {
+    //     const timer = setInterval(() => {
+    //         setProgress((prevProgress) => (prevProgress >= 100 ? 10: prevProgress + 10))
+    //     }, 800)
+    //     return ()=>{
+    //         clearInterval(timer)
+    //     }
+    // }, [])
+
     return (
-        <div>
+        <main className="w-full px-4">
             {isValidShareLink === null ?
                 <p>....Loading</p> :
                 isValidShareLink ?
-                    <div>
+                    <section>
                         {!file ?
                             <div className="flex flex-col justify-center items-center gap-5">
-                                <h2 className="text-3xl font-semibold">Select a File</h2>
+                                <h2 className="text-3xl font-semibold text-gray-900">Select a file to send</h2>
+                                <p className="text-gray-600 mb-4 text-center">
+                                    You are now connected with the receiver. Select a file to start sharing.
+                                </p>
                                 <UploadBox handleInputChange={handleFileInput} />
-                            </div> :
-                            <div className="flex items-center justify-center">
-                                <div className="flex justify-between items-center bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-sm w-full max-w-md">
-                                    <a
-                                        href={fileUrl}
-                                        target="_blank"
-                                        className="text-blue-600 font-medium truncate hover:underline"
-                                    >
-                                        {file.name}
-                                    </a>
+                            </div>
 
-                                    <div className="flex items-center gap-3">
+                            :
+                            sentFileSize.current > 0 ?
+                                <div className="flex flex-col px-4 gap-3">
+                                    <h3 className="font-semibold text-gray-800 text-2xl text-center">Sending File</h3>
+                                    {/* <progress max={file.size} value={sentFileSize.current} /> */}
+                                    <p className="text-center text-gray-700">Estimated time remaining: 30 minutes</p>
+                                    <div className="max-w-xs w-full mx-auto px-2">
+                                        <ProgressBar progress={progressPercent} />
+                                    </div>
+                                </div>
+                                :
+                                <div className="flex flex-col items-center justify-center gap-3">
+                                    <h2 className="text-3xl font-semibold text-gray-900">File has been selected</h2>
+                                    <div className="max-w-md">
+                                        <div className="flex w-full gap-1">
+                                            <p className="whitespace-nowrap">Selected File:</p>
+                                            <a
+                                                href={fileUrl}
+                                                target="_blank"
+                                                className="text-blue-600 font-medium hover:underline"
+                                            >
+                                                {file.name}
+                                            </a>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-10 items-center justify-between">
                                         <button
                                             onClick={handleClearFile}
-                                            className="px-3 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 transition hover:cursor-pointer"
+                                            className="cursor-pointer bg-gray-400 px-8 hover:bg-gray-500 text-white font-medium py-2 
+                                                rounded-lg transition focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 "
                                         >
                                             Clear
                                         </button>
 
                                         <button
                                             onClick={handleSendFile}
-                                            className="px-3 py-1.5 text-sm rounded-lg bg-[#4A90E2] text-white hover:bg-[#3B7AC2] transition hover:cursor-pointer"
+                                            className="cursor-pointer bg-blue-600 px-8 hover:bg-blue-700 text-white font-medium py-2 
+                                                rounded-lg transition focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 "
                                         >
                                             Send
                                         </button>
                                     </div>
                                 </div>
-                            </div>
-
                         }
 
-                        <ShowNotification
+                        {/* <ShowNotification
                             severity={"success"}
                             message={"Connected!"}
-                            open={open}
-                            setOpen={setOpen} />
-                    </div> :
-                    <div className="flex items-center justify-center">
+                            open={open.open}
+                            setOpen={setOpen} /> */}
+                    </section> :
+                    <section className="flex items-center justify-center">
                         <p className="font-semibold text-xl">Invalid Share Link</p>
-                        <ShowNotification
-                            severity={"error"}
-                            message={"Invalid Share Link"}
-                            open={open}
-                            setOpen={setOpen} />
-                    </div>}
-
-        </div>
+                    </section>}
+            <ShowNotification
+                severity={open.severity}
+                message={open.message}
+                open={open.open}
+                setOpen={setOpen} />
+        </main>
     )
 }

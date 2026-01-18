@@ -10,7 +10,7 @@ export default function Navbar() {
         >
           FileShare
         </a>
-        <Settings />
+        {/* <Settings /> */}
       </div>
     </nav>
   );

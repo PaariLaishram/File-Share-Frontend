@@ -98,7 +98,7 @@ export default function Sender(props: Props) {
     const createPeerConnection = async () => {
         peerConnection.current = new RTCPeerConnection(configuration)
         peerConnection.current.onconnectionstatechange = () => {
-            console.log("PeerConnection state:", peerConnection?.current?.connectionState)
+            // console.log("PeerConnection state:", peerConnection?.current?.connectionState)
         }
         peerConnection.current.addEventListener('icecandidate', e => {
             if (e.candidate) {
@@ -110,7 +110,7 @@ export default function Sender(props: Props) {
                 }
                 ws.current?.send(JSON.stringify(msg))
             } else {
-                console.log("ICE gathering complete")
+                // console.log("ICE gathering complete")
             }
         })
         //Data channel - api used to send arbitrary data over RTCPeerConnection
@@ -120,7 +120,7 @@ export default function Sender(props: Props) {
         const dataChannel = peerConnection.current.createDataChannel("test")
         dataChannel.binaryType = "arraybuffer"
         dataChannel.onopen = () => {
-            console.log("Data channel open ready to send file")
+            // console.log("Data channel open ready to send file")
         }
 
         dataChannelRef.current = dataChannel
@@ -153,7 +153,6 @@ export default function Sender(props: Props) {
 
     const handleFileInput = (files: FileList | null) => {
         if (!files || files.length === 0) return;
-        console.log(files)
         if (files) {
             const uploaded_file = files[0]
             if (!allowedFileTypes.includes(uploaded_file.type)) {
@@ -211,7 +210,6 @@ export default function Sender(props: Props) {
     // }
 
     const handleSendFile = async () => {
-        console.log(file)
         const dc = dataChannelRef.current
         if (!dc || dc.readyState !== "open") {
             console.log("Data channel is not open")

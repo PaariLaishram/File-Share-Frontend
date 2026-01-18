@@ -11,9 +11,9 @@ function App() {
   const [profileData, setProfileData] = useState<LoginResult | null>(null)
   const [accessToken, setAccessToken] = useState<AccessToken | null>(null)
 
-  useEffect(() => {
-    isAuthenticated()
-  }, [])
+  // useEffect(() => {
+  //   isAuthenticated()
+  // }, [])
 
   const isAuthenticated = async () => {
     const headers = {

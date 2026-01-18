@@ -34,6 +34,7 @@ export default function Receiver(props: Props) {
     const meta = useRef<Meta | null>(null)
     const [progressPercent, setProgressPercent] = useState(0)
     const currentFileSize = useRef(0)
+    /// wasClosed use to determine is browser is minimise on phone
     const [wasClosed, setWasClosed] = useState(false)
 
     useEffect(() => {
@@ -69,13 +70,12 @@ export default function Receiver(props: Props) {
         document.addEventListener("visibilitychange", () => {
             if (document.visibilityState === "visible" && wasClosed) {
                 connect()
-                console.log("reconnecting...")
+                // console.log("reconnecting...")
             }
             if (document.visibilityState === "hidden") {
-                console.log("hidden")
+                // console.log("hidden")
             }
         })
-
         connect()
     }, [props.shareLink])
 
@@ -99,7 +99,7 @@ export default function Receiver(props: Props) {
         }
         peerConnection.current = new RTCPeerConnection(configuration)
         peerConnection.current.onconnectionstatechange = () => {
-            console.log("PeerConnection state:", peerConnection?.current?.connectionState)
+            // console.log("PeerConnection state:", peerConnection?.current?.connectionState)
         }
         peerConnection.current.addEventListener('icecandidate', e => {
             if (e.candidate) {
@@ -111,7 +111,7 @@ export default function Receiver(props: Props) {
                 }
                 ws.current?.send(JSON.stringify(msg))
             } else {
-                console.log("ICE gathering complete")
+                // console.log("ICE gathering complete")
             }
         })
 
@@ -122,7 +122,7 @@ export default function Receiver(props: Props) {
             const dc = event.channel
             //Need to wait for channel to open before sending data
             dc.onopen = () => {
-                console.log("Data channel open")
+                // console.log("Data channel open")
             }
             //Receive the dc sent message
             dc.onmessage = (event) => {
@@ -144,7 +144,6 @@ export default function Receiver(props: Props) {
                         a.href = url
                         a.download = meta.current.name
                         a.click()
-                        console.log("File received")
                         meta.current = null
                         currentFileSize.current = 0
                         receivedBuffer = []

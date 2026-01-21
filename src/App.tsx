@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom"
 import Home from './components/home/Home'
 import { Provider } from "react-redux";
 import { store } from "./redux/store"
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { getProfile, validateRefreshToken } from './api';
 import type { AccessToken as AccessToken, LoginResult } from "./models/models";
 

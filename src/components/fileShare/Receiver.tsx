@@ -8,6 +8,7 @@ import type { NotificationModel, UploadSignal } from "@/models/models";
 import { configuration } from "./config";
 import ProgressBar from "../common/ProgressBar";
 import { convertBytes } from "@/lib/utils";
+import { showSwal } from "../common/common";
 
 
 type Props = {
@@ -31,11 +32,13 @@ export default function Receiver(props: Props) {
     const ws = useRef<WebSocket | null>(null)
     const peerConnection = useRef<RTCPeerConnection | null>(null)
     const pendingIce: RTCIceCandidateInit[] = []
-    const meta = useRef<Meta | null>(null)
+    const [meta,setMeta] = useState<Meta | null>(null)
+    const metaRef = useRef<Meta | null> (null)
     const [progressPercent, setProgressPercent] = useState(0)
     const currentFileSize = useRef(0)
     /// wasClosed use to determine is browser is minimise on phone
     const [wasClosed, setWasClosed] = useState(false)
+    const isCancelled = useRef(false)
 
     useEffect(() => {
         const connect = () => {
@@ -129,38 +132,50 @@ export default function Receiver(props: Props) {
                 //metadata
                 if (typeof event.data === "string") {
                     const msg = JSON.parse(event.data)
+
+                    if (msg.type === "cancel") {
+                        isCancelled.current = true
+                        setMeta(null)
+                        metaRef.current = null
+                        currentFileSize.current = 0
+                        setProgressPercent(0)
+                        receivedBuffer = []
+                        showSwal("File Transfer Cancelled", "File has been cancelled by sender", "info")
+                        return
+                    }
+
                     if (msg.type === "meta") {
                         const metaData: Meta = {
                             name: msg.name,
                             size: msg.size,
                             mime: msg.mime
                         }
-                        meta.current = metaData
+                        metaRef.current = metaData
+                        setMeta(metaData)
+                        isCancelled.current = false
                     }
-                    if (msg.type === "done" && meta.current) {
-                        const blob = new Blob(receivedBuffer, { type: meta.current.mime })
+                    if (msg.type === "done" && metaRef.current) {
+                        const blob = new Blob(receivedBuffer, { type: metaRef.current.mime })
                         const url = URL.createObjectURL(blob)
                         const a = document.createElement("a")
                         a.href = url
-                        a.download = meta.current.name
+                        a.download = metaRef.current.name
                         a.click()
-                        meta.current = null
+                        metaRef.current = null
+                        setMeta(null)
                         currentFileSize.current = 0
                         receivedBuffer = []
-
                     }
                 } else {
-                    if (meta.current) {
-                        currentFileSize.current += event.data.byteLength
-                        const percent = (currentFileSize.current / meta.current.size) * 100
-                        setProgressPercent(percent)
-                        receivedBuffer.push(event.data)
-                    }
-
+                    if (!metaRef.current || isCancelled.current) return
+                    currentFileSize.current += event.data.byteLength
+                    const percent = (currentFileSize.current / metaRef.current.size) * 100
+                    setProgressPercent(percent)
+                    receivedBuffer.push(event.data)
                 }
             }
-
         }
+
         const answer = await peerConnection.current.createAnswer()
         await peerConnection.current.setLocalDescription(answer)
 
@@ -175,7 +190,7 @@ export default function Receiver(props: Props) {
 
     }
 
-    const handleCopy = () => {
+    const handleCopy = async () => {
         copy(shareURL)
         setOpen({
             open: true,
@@ -184,28 +199,24 @@ export default function Receiver(props: Props) {
         })
     }
 
-    const handleConfirm = () => {
-
-    }
-
     return (
         <main className="w-full px-4">
-            {meta.current ?
-              <section>
+            {meta ?
+                <section>
                     <div className="flex flex-col px-4 gap-3">
                         <h3 className="font-semibold text-gray-800 text-2xl text-center">Receiving File</h3>
                         <div className="flex flex-col items-center justify-center">
                             <div className="flex gap-1">
                                 <label className="text-gray-700">File Name:</label>
-                                <span className="text-gray-700">{meta.current.name}</span>
+                                <span className="text-gray-700">{meta.name}</span>
                             </div>
-                           <div className="flex gap-1">
+                            <div className="flex gap-1">
                                 <label className="text-gray-700">File Size:</label>
-                                <span className="text-gray-700">{convertBytes(meta.current.size)}</span>
+                                <span className="text-gray-700">{convertBytes(meta.size)}</span>
                             </div>
                         </div>
                         {/* <progress max={file.size} value={sentFileSize.current} /> */}
-                        <p className="text-center text-gray-700">Estimated time remaining: 30 minutes</p>
+                        {/* <p className="text-center text-gray-700">Estimated time remaining: 30 minutes</p> */}
                         <div className="max-w-xs w-full mx-auto px-2">
                             <ProgressBar progress={progressPercent} />
                         </div>
@@ -227,7 +238,7 @@ export default function Receiver(props: Props) {
                             handleCopy={handleCopy}
                         />
                     </div>
-                    <ConfirmDialog open={openConfirm} setOpen={setOpenConfirm} handleClick={handleConfirm} />
+                    {/* <ConfirmDialog open={openConfirm} setOpen={setOpenConfirm} handleProceed={handleConfirm} /> */}
                 </section>
             }
             <ShowNotification

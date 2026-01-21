@@ -4,9 +4,9 @@ import ShowNotification from "../common/ShowNotification"
 import { getWsUrl } from "@/api"
 import type { NotificationModel, UploadSignal } from "@/models/models"
 import { configuration } from "./config"
-import Swal from 'sweetalert2'
-import withReactContent from 'sweetalert2-react-content'
 import ProgressBar from "../common/ProgressBar"
+import { ConfirmDialog } from "../common/ConfirmDialog"
+import { showSwal } from "../common/common"
 
 type Props = {
     shareLink: string
@@ -20,21 +20,22 @@ const allowedFileTypes = [
 ]
 
 export default function Sender(props: Props) {
-    const MySwal = withReactContent(Swal)
     const [isValidShareLink, setIsValidShareLink] = useState<boolean | null>(null)
     const [open, setOpen] = useState<NotificationModel>({
         open: false,
         message: "",
         severity: "success"
     })
+    const [openConfirm, setOpenConfirm] = useState(false)
     const [file, setFile] = useState<File | null>(null)
     const [fileUrl, setFileUrl] = useState("")
     const ws = useRef<WebSocket | null>(null)
     const peerConnection = useRef<RTCPeerConnection | null>(null)
     const pendingIce: RTCIceCandidateInit[] = []
     const dataChannelRef = useRef<RTCDataChannel | null>(null)
-    const sentFileSize = useRef(0);
+    const [sentFileSize, setSentFileSize] = useState(0);
     const [progressPercent, setProgressPercent] = useState(0)
+    const isCancelled = useRef(false)
 
     useEffect(() => {
         if (ws.current) return
@@ -173,42 +174,6 @@ export default function Sender(props: Props) {
         setFile(null)
     }
 
-    // const handleSendFile = async () => {
-    //     const dc = dataChannelRef.current
-    //     if (!dc || dc.readyState !== 'open') {
-    //         console.log("data channel is not open")
-    //         return
-    //     }
-    //     //Send data over the datachannel 
-    //     dc.send(JSON.stringify({
-    //         type: "meta",
-    //         name: file?.name,
-    //         size: file?.size,
-    //         mime: file?.type
-    //     }))
-
-    //     //Send file data
-    //     if (file) {
-    //         const buffer = await file?.arrayBuffer()
-    //         const chunk_size = 16  * 1024 // 16 KB
-    //         const fileSize = file.size
-    //         let offset = 0
-    //         while(offset <= buffer.byteLength)  {
-    //             let end = offset + chunk_size
-    //             if (end > fileSize) {
-    //                 end = fileSize
-    //             }
-    //             let chunk = buffer.slice(offset, end)
-    //             dc.send(chunk)
-    //             offset+=chunk_size
-    //         }  
-
-    //         dc.send(JSON.stringify({type:"done"}))
-
-    //     }
-
-    // }
-
     const handleSendFile = async () => {
         const dc = dataChannelRef.current
         if (!dc || dc.readyState !== "open") {
@@ -229,6 +194,7 @@ export default function Sender(props: Props) {
         const buffer = await file.arrayBuffer()
         const chunkSize = 16 * 1024 // 16 KB
         let offset = 0
+        let sentBytes = 0
 
         const waitForBufferDrain = () =>
             new Promise<void>((resolve) => {
@@ -246,6 +212,20 @@ export default function Sender(props: Props) {
             })
 
         while (offset < buffer.byteLength) {
+
+            if (isCancelled.current) {
+                console.log("is cancelled")
+                setSentFileSize(0)
+                setProgressPercent(0);
+                isCancelled.current = false
+                setOpen({
+                    open: true,
+                    severity: "success",
+                    message: "Sending file cancelled"
+                })
+                return
+            }
+
             //If dc queue is more than 8 MB drain it
             if (dc.bufferedAmount > 8 * 1024 * 1024) {
                 await waitForBufferDrain()
@@ -256,36 +236,33 @@ export default function Sender(props: Props) {
                 end = fileSize
             }
             const chunk = buffer.slice(offset, end)
-            sentFileSize.current += chunkSize
-            const percent = (sentFileSize.current / file.size) * 100
+            sentBytes += chunk.byteLength
+            setSentFileSize(sentBytes)
+            // sentFileSize.current += chunkSize
+            const percent = ((sentBytes) / file.size) * 100
             setProgressPercent(percent)
             dc.send(chunk)
             offset = end
         }
 
         dc.send(JSON.stringify({ type: "done" }))
-        sentFileSize.current = 0
+        console.log("done sent")
+        setSentFileSize(0)
         setFile(null)
-        showSwal()
+        showSwal("File Sent!", "Your file has been sent", "success")
     }
 
-    const showSwal = () => {
-        Swal.fire({
-            title: "File Sent!",
-            text: "Your file has been sent",
-            icon: "success"
-        })
+    const handleCancel = () => {
+        setOpenConfirm(true)
     }
 
-
-    // useEffect(() => {
-    //     const timer = setInterval(() => {
-    //         setProgress((prevProgress) => (prevProgress >= 100 ? 10: prevProgress + 10))
-    //     }, 800)
-    //     return ()=>{
-    //         clearInterval(timer)
-    //     }
-    // }, [])
+    const handleProceedCancel = () => {
+       isCancelled.current = true
+       const dc = dataChannelRef.current
+       dc?.send(JSON.stringify({
+        type:"cancel"
+       }))
+    }
 
     return (
         <main className="w-full px-4">
@@ -301,15 +278,21 @@ export default function Sender(props: Props) {
                                 </p>
                                 <UploadBox handleInputChange={handleFileInput} />
                             </div>
-
                             :
-                            sentFileSize.current > 0 ?
+                            sentFileSize > 0 ?
                                 <div className="flex flex-col px-4 gap-3">
                                     <h3 className="font-semibold text-gray-800 text-2xl text-center">Sending File</h3>
                                     {/* <progress max={file.size} value={sentFileSize.current} /> */}
-                                    <p className="text-center text-gray-700">Estimated time remaining: 30 minutes</p>
+                                    {/* <p className="text-center text-gray-700">Estimated time remaining: 30 minutes</p> */}
                                     <div className="max-w-xs w-full mx-auto px-2">
                                         <ProgressBar progress={progressPercent} />
+                                    </div>
+                                    <div className="flex items-center justify-center">
+                                        <button
+                                            onClick={handleCancel}
+                                            className=" cursor-pointer bg-gray-400 px-8 hover:bg-gray-500 text-white font-medium py-2 
+                                                rounded-lg transition focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 "
+                                        >Cancel</button>
                                     </div>
                                 </div>
                                 :
@@ -361,6 +344,13 @@ export default function Sender(props: Props) {
                 message={open.message}
                 open={open.open}
                 setOpen={setOpen} />
+            <ConfirmDialog
+                title="Are you sure you want to cancel?"
+                description="This will cancel sending the file"
+                open={openConfirm}
+                setOpen={setOpenConfirm}
+                handleProceed={handleProceedCancel}
+            />
         </main>
     )
 }

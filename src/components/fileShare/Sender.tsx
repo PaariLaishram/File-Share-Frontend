@@ -214,7 +214,6 @@ export default function Sender(props: Props) {
         while (offset < buffer.byteLength) {
 
             if (isCancelled.current) {
-                console.log("is cancelled")
                 setSentFileSize(0)
                 setProgressPercent(0);
                 isCancelled.current = false
@@ -246,7 +245,6 @@ export default function Sender(props: Props) {
         }
 
         dc.send(JSON.stringify({ type: "done" }))
-        console.log("done sent")
         setSentFileSize(0)
         setFile(null)
         showSwal("File Sent!", "Your file has been sent", "success")

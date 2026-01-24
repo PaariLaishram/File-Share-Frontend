@@ -32,13 +32,16 @@ export default function Receiver(props: Props) {
     const ws = useRef<WebSocket | null>(null)
     const peerConnection = useRef<RTCPeerConnection | null>(null)
     const pendingIce: RTCIceCandidateInit[] = []
-    const [meta,setMeta] = useState<Meta | null>(null)
-    const metaRef = useRef<Meta | null> (null)
+    const [meta, setMeta] = useState<Meta | null>(null)
+    const metaRef = useRef<Meta | null>(null)
     const [progressPercent, setProgressPercent] = useState(0)
     const currentFileSize = useRef(0)
     /// wasClosed use to determine is browser is minimise on phone
     const [wasClosed, setWasClosed] = useState(false)
     const isCancelled = useRef(false)
+    let receivedBuffer: ArrayBuffer[] = []
+    const [isTransferring, setIsTransferring] = useState(false)
+
 
     useEffect(() => {
         const connect = () => {
@@ -102,7 +105,14 @@ export default function Receiver(props: Props) {
         }
         peerConnection.current = new RTCPeerConnection(configuration)
         peerConnection.current.onconnectionstatechange = () => {
-            // console.log("PeerConnection state:", peerConnection?.current?.connectionState)
+            if (isTransferring && (peerConnection.current?.connectionState === "disconnected" || peerConnection.current?.connectionState === "failed")) {
+                metaRef.current = null
+                setMeta(null)
+                currentFileSize.current = 0
+                receivedBuffer = []
+                showSwal("Sender has disconnected!", "File transfer has cancelled because the sender disconnected", "info")
+                return
+            }
         }
         peerConnection.current.addEventListener('icecandidate', e => {
             if (e.candidate) {
@@ -118,8 +128,8 @@ export default function Receiver(props: Props) {
             }
         })
 
+
         await peerConnection.current.setRemoteDescription(msg.offer)
-        let receivedBuffer: ArrayBuffer[] = []
         //Remote peer can receive data channel by listening using ondatachannel event on the RTCPeerConnection obj
         peerConnection.current.ondatachannel = event => {
             const dc = event.channel
@@ -127,6 +137,10 @@ export default function Receiver(props: Props) {
             dc.onopen = () => {
                 // console.log("Data channel open")
             }
+
+            // dc.onclose = () => {
+            //     console.log("data channel has been closed")
+            // }
             //Receive the dc sent message
             dc.onmessage = (event) => {
                 //metadata
@@ -139,6 +153,7 @@ export default function Receiver(props: Props) {
                         metaRef.current = null
                         currentFileSize.current = 0
                         setProgressPercent(0)
+                        setIsTransferring(false)
                         receivedBuffer = []
                         showSwal("File Transfer Cancelled", "File has been cancelled by sender", "info")
                         return
@@ -152,6 +167,7 @@ export default function Receiver(props: Props) {
                         }
                         metaRef.current = metaData
                         setMeta(metaData)
+                        setIsTransferring(true)
                         isCancelled.current = false
                     }
                     if (msg.type === "done" && metaRef.current) {
@@ -165,6 +181,7 @@ export default function Receiver(props: Props) {
                         setMeta(null)
                         currentFileSize.current = 0
                         receivedBuffer = []
+                        setIsTransferring(false)
                     }
                 } else {
                     if (!metaRef.current || isCancelled.current) return

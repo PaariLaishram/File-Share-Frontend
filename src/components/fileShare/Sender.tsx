@@ -153,6 +153,7 @@ export default function Sender(props: Props) {
     }
 
     const handleFileInput = (files: FileList | null) => {
+        const file_size_limit = 524288000; //500 MB
         if (!files || files.length === 0) return;
         if (files) {
             const uploaded_file = files[0]
@@ -160,6 +161,14 @@ export default function Sender(props: Props) {
                 setOpen({
                     open: true,
                     message: "Unsupported File Type",
+                    severity: "error"
+                })
+                return
+            }
+            if(uploaded_file.size > file_size_limit) {
+                setOpen({
+                    open: true,
+                    message: "File size cannot exceed 500 MB",
                     severity: "error"
                 })
                 return

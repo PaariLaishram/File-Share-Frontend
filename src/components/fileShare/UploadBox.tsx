@@ -1,64 +1,68 @@
-import { Box, Typography } from "@mui/material";
+import { Typography } from "@mui/material";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 type Props = {
-    handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void
-}
+    handleInputChange: (files: FileList | null) => void;
+};
 
 export default function UploadBox(props: Props) {
-    const inputRef = useRef<HTMLInputElement | null>(null)
+    const inputRef = useRef<HTMLInputElement | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
 
-    const handleClick = () => {
-         inputRef.current?.click(); 
-    }
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = () => {
+        setIsDragging(false);
+    };
+
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        setIsDragging(false);
+
+        props.handleInputChange(e.dataTransfer.files);
+    };
+
 
     return (
-        <>
-            <input
-                type="file"
-                ref={inputRef}
-                accept=".pdf, .docx, .doc"
-                onChange={props.handleInputChange}
-                style={{ display: "none" }}
-            />
-
-            <Box
-                onClick={handleClick}
-                onDrop={() => { }}
-                onDragOver={() => { }}
-                sx={{
-                    width: "400px",
-                    height: "170px",
-                    border: "2px dashed #cfcfcf",
-                    borderRadius: "16px",
-                    background: "#fafafa",
-                    display: "flex",
-                    flexDirection: "column",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    gap: 1.5,
-                    cursor: "pointer",
-                    transition: "0.2s ease",
-                    boxShadow: "0 4px 14px rgba(0,0,0,0.05)",
-
-                    "&:hover": {
-                        background: "#f5f5f5",
-                        borderColor: "#b8b8b8",
-                        boxShadow: "0 6px 20px rgba(0,0,0,0.08)",
-                    },
-                }}
+        <label className="w-full md:w-[50%]  block cursor-pointer">
+            <div
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`border border-dashed rounded-md px-5 py-5 transition flex 
+                    flex-col items-center justify-center  md:h-[200px] shadow-md
+          ${isDragging
+                        ? "border-blue-500 bg-blue-50"
+                        : "border-gray-300"
+                    }`}
             >
-                <CloudUploadIcon sx={{ fontSize: 48, color: "#1975D2" }} />
-                {/* 
-            <Typography sx={{ fontSize: "1rem", color: "#444" }}>
-                Drag & Drop your files here
-            </Typography> */}
+                <div className="flex flex-col items-center justify-center pointer-events-none gap-1">
+                    <CloudUploadIcon sx={{ fontSize: 48, color: "#1975d2" }} />
 
-                <Typography sx={{ fontSize: "1rem", color: "#777" }}>
-                    Click to Browse
-                </Typography>
-            </Box>
-        </>
-    )
+                    <p className="font-semibold text-gray-800">
+                        <span className="underline">Choose a file</span> or drag & drop it here
+                    </p>
+
+                    <p className="text-gray-600">
+                        Supported Formats: <span className="font-semibold">JPEG, PDF, MP4 </span>
+                    </p>
+                    <p className="text-gray-600">
+                        Maximum Size: <span className="font-semibold">500MB</span>
+                    </p>
+                </div>
+            </div>
+
+            <input
+                ref={inputRef}
+                type="file"
+                accept=".mp4, .pdf, .docx, .jpeg, .jpg"
+                onChange={(e) => props.handleInputChange(e.target.files)}
+                hidden
+            />
+        </label>
+    );
 }

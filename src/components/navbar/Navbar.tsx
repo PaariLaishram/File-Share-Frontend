@@ -1,14 +1,16 @@
 import Settings from "../common/Settings";
 
-
 export default function Navbar() {
   return (
-    <nav className="bg-[#F7F5F2] w-full py-4">
+    <nav className="bg-white w-full py-4 border-b border-gray-200">
       <div className="max-w-6xl mx-auto px-4 flex items-center justify-between">
-        <a href="/" className="text-gray-800 font-medium text-lg hover:text-gray-600 transition">
-          Home
+        <a
+          href="/"
+          className="text-gray-900 font-semibold text-lg hover:text-blue-600 transition"
+        >
+          FileShare
         </a>
-        <Settings />
+        {/* <Settings /> */}
       </div>
     </nav>
   );

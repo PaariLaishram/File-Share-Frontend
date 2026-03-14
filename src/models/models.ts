@@ -36,5 +36,13 @@ export type UploadSignal = {
     chunkIndex?:number;
     fileName?:string
     totalChunks?:number
+    offer?:RTCSessionDescriptionInit;
+    answer?: RTCSessionDescriptionInit;
+    candidate?: RTCIceCandidate;
 }
 
+export type  NotificationModel = {
+    open: boolean;
+    message: string; 
+    severity: "success" | "error" | "info" | "warning"
+} 

@@ -35,8 +35,7 @@ const _callApi = async (url: string, method: HttpMethod = "get", configData = {}
                 headers
             ) 
         }
-        console.log(configData)
-        console.log(config)
+        
         const response = await apiEndpoint
         const { status, data } = response
         if (status === 200 || status === 201) {

@@ -13,25 +13,27 @@ import { type Dispatch, type SetStateAction } from "react"
 type Props = {
   open: boolean;
   setOpen: Dispatch<SetStateAction<boolean>>;
-  handleClick: (confirm: boolean) => void;
+  handleProceed: (confirm: boolean) => void;
+  title:string;
+  description:string;
 }
 
 export function ConfirmDialog(props: Props) {
   return (
     <AlertDialog open={props.open} onOpenChange={props.setOpen}>
-      <AlertDialogContent>
+      <AlertDialogContent className="top-[30%]">
         <AlertDialogHeader>
           <AlertDialogTitle className="text-center">
-            Accept Incoming File?
+           {props.title}
           </AlertDialogTitle>
         </AlertDialogHeader>
         <AlertDialogDescription className="flex justify-center">
-          The file will be saved to your device
+          {props.description}
         </AlertDialogDescription>
         <AlertDialogFooter>
           <div className="w-full flex justify-center items-center gap-4">
-            <AlertDialogCancel className="cursor-pointer" onClick={() => props.handleClick(false)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="cursor-pointer bg-[#1975D2] text-white hover:bg-[#3B7AC2] transition" onClick={() => props.handleClick(true)}>Continue</AlertDialogAction>
+            <AlertDialogCancel className="cursor-pointer" onClick={() => props.handleProceed(false)}>No</AlertDialogCancel>
+            <AlertDialogAction className="cursor-pointer bg-blue-600 text-white hover:bg-blue-700 transition" onClick={() => props.handleProceed(true)}>Yes</AlertDialogAction>
           </div>
         </AlertDialogFooter>
 
